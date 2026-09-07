@@ -7,6 +7,7 @@ Supports both local Stdio transport and in-cluster SSE transport.
 
 import os
 import sys
+import pathlib
 import time
 import base64
 import asyncio
@@ -21,6 +22,21 @@ POLL_INTERVAL_SEC = float(os.getenv("POLL_INTERVAL_SEC", "0.5"))
 MAX_TIMEOUT_SEC = float(os.getenv("MAX_TIMEOUT_SEC", "120.0"))
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# Root that documents must live under. Every path the model supplies is
+# resolved against this and rejected if it escapes.
+WORKSPACE = pathlib.Path(os.getenv("OCR_WORKSPACE", ".")).resolve()
+
+
+def _resolve(file_path: str) -> pathlib.Path:
+    """Resolve a path against the workspace and refuse anything outside it."""
+    target = (WORKSPACE / file_path).resolve()
+    if not target.is_relative_to(WORKSPACE):
+        raise ValueError(f"path outside workspace: {file_path}")
+    if not target.is_file():
+        raise ValueError(f"no such file: {file_path}")
+    return target
+
 
 # Initialize FastMCP Server
 mcp = FastMCP(
@@ -40,17 +56,19 @@ async def parse_document(
     Submits a document (image or PDF) to the private AKS OCR pipeline and returns structured Markdown.
 
     Args:
-        file_path: Path to the image (PNG, JPG, WebP) or PDF document.
+        file_path: Path to the image (PNG, JPG, WebP) or PDF document,
+            relative to the workspace root. Paths outside it are rejected.
         include_layout: If True, includes bounding boxes and detected document regions in the output.
 
     Returns:
         A dictionary containing the markdown content, status, and optional layout metadata.
     """
-    expanded_path = os.path.expanduser(file_path)
-    if not os.path.exists(expanded_path):
+    try:
+        target = _resolve(file_path)
+    except ValueError as exc:
         return {
             "success": False,
-            "error": f"File not found: {file_path}",
+            "error": str(exc),
         }
 
     headers = {}
@@ -60,8 +78,8 @@ async def parse_document(
     async with httpx.AsyncClient(timeout=30.0) as client:
         # 1. Submit Document Asynchronously
         try:
-            with open(expanded_path, "rb") as f:
-                files = {"file": (os.path.basename(expanded_path), f)}
+            with open(target, "rb") as f:
+                files = {"file": (target.name, f)}
                 submit_url = f"{OCR_API_URL.rstrip('/')}/process"
                 response = await client.post(submit_url, files=files, headers=headers)
                 response.raise_for_status()
