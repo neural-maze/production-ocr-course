@@ -116,8 +116,10 @@ async def worker_loop():
             
             while len(batch) < MAX_BATCH_SIZE:
                 timeout = max(0, deadline - time.time())
-                # Use LPOP for non-blocking check of more tasks
-                next_task = r.lpop("ocr_tasks")
+                # Use RPOP for a non-blocking check of more tasks. RPOP pairs with
+                # the producer's LPUSH so the queue stays FIFO; LPOP would make it
+                # a stack and let the oldest tasks starve under sustained load.
+                next_task = r.rpop("ocr_tasks")
                 if next_task:
                     batch.append(next_task)
                 elif timeout > 0:
