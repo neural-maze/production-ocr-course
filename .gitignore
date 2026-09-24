@@ -180,5 +180,18 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Terraform local state, plans, caches, and private variable values
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+**/tfplan
+*.tfvars
+!*.tfvars.example
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+
 # macOS
 .DS_Store

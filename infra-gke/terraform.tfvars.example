@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and set your project ID.
+project_id = "your-gcp-project-id"
+
+# europe-west4-a is the documented course default because it offers both T4
+# and A100 80 GB accelerators. Always verify current offerings and capacity.
+region = "europe-west4"
+zone   = "europe-west4-a"
+
+cluster_name                 = "gke-ocr-cluster"
+artifact_registry_repository = "ocr-repository"
+
+# Each GPU node has one GPU. These maxima require quota for 4 T4 GPUs and
+# 4 A100 80 GB GPUs in the selected region.
+gpu_max_nodes = 4
