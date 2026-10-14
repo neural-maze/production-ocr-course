@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ocr-vlm-deployment
+  labels:
+    app: ocr-vlm
+spec:
+  replicas: 1 # Can be scaled by KEDA if needed
+  selector:
+    matchLabels:
+      app: ocr-vlm
+  template:
+    metadata:
+      labels:
+        app: ocr-vlm
+    spec:
+      nodeSelector:
+        kubernetes.azure.com/agentpool: gpunpa100
+      tolerations:
+        - key: "sku"
+          operator: "Equal"
+          value: "gpunpa100"
+          effect: "NoSchedule"
+      containers:
+        - name: ocr-vlm-server
+          image: __REGISTRY__/ocr-vlm-qwen:__TAG__
+          imagePullPolicy: Always
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+          envFrom:
+            - configMapRef:
+                name: ocr-pipeline-config
+          ports:
+            - containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+          resources:
+            limits:
+              nvidia.com/gpu: "1" 
+              cpu: "16"
+              memory: "120Gi"
+            requests:
+              nvidia.com/gpu: "1"
+              cpu: "8"
+              memory: "64Gi"
+          volumeMounts:
+            - name: model-weights
+              mountPath: /mnt/models
+              readOnly: true
+      volumes:
+        - name: model-weights
+          persistentVolumeClaim:
+            claimName: model-weights-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ocr-vlm-service
+spec:
+  selector:
+    app: ocr-vlm
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
