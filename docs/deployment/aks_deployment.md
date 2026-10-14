@@ -2,8 +2,8 @@
 
 > **Before you start:** this guide assumes you already have an Azure account
 > with Pay-As-You-Go billing and approved GPU quota. If you haven't done that
-> yet, go through [`azure_onboarding.md`](azure_onboarding.md) and
-> [`azure_gpu_prereqs.md`](azure_gpu_prereqs.md) first. Note that the
+> yet, go through [`azure_onboarding.md`](../setup/azure_onboarding.md) and
+> [`azure_gpu_prereqs.md`](../setup/azure_gpu_prereqs.md) first. Note that the
 > capacity-proof cluster built in Section 7 of `azure_gpu_prereqs.md` is
 > disposable and unrelated to the cluster built below — delete it if you
 > haven't already, this guide creates its own from scratch.
@@ -128,7 +128,7 @@ kubectl label --overwrite ns gpu-operator pod-security.kubernetes.io/enforce=pri
 # 3. Install the GPU Operator with Taint-Toleration Values
 helm install gpu-operator nvidia/gpu-operator \
   -n gpu-operator \
-  -f k8s/aks/infra/gpu-operator-values.yaml
+  -f pipeline/k8s/aks/infra/gpu-operator-values.yaml
 ```
 
 **Wait for rollout (3-5 mins):**
@@ -164,7 +164,7 @@ kubectl get pods -n gpu-operator
 kubectl describe nodes | Select-String "Taints" -Context 0,2
 ```
 
-> **Pro Tip:** If `GPU_ALLOCATABLE` shows `0` or `<none>`, the GPU Operator components (Drivers/Device Plugin) have failed to schedule on those nodes. Re-check the tolerations in `k8s/infra/gpu-operator-values.yaml` and ensure the `gpu-operator` namespace has the `privileged` PSA label.
+> **Pro Tip:** If `GPU_ALLOCATABLE` shows `0` or `<none>`, the GPU Operator components (Drivers/Device Plugin) have failed to schedule on those nodes. Re-check the tolerations in `pipeline/k8s/aks/infra/gpu-operator-values.yaml` and ensure the `gpu-operator` namespace has the `privileged` PSA label.
 
 ### 📦 2. Model Ingestion: Datacenter‑to‑Datacenter
 
@@ -178,7 +178,7 @@ The model weights are stored in a **Blob CSI‑backed PVC**. This must exist and
 
 ```bash
 # 1. Apply the PVC
-kubectl apply -f k8s/aks/infra/provisioning/pvc.yaml
+kubectl apply -f pipeline/k8s/aks/infra/provisioning/pvc.yaml
 
 # 2. Verify the status is 'Bound'
 kubectl get pvc model-weights-pvc
@@ -196,7 +196,7 @@ The Job uses environment variables to manage parallel downloads.
 
 ```bash
 # Launch the job
-kubectl apply -f k8s/aks/infra/provisioning/ingest-job.yaml
+kubectl apply -f pipeline/k8s/aks/infra/provisioning/ingest-job.yaml
 
 # Confirm creation and detailed status
 kubectl get job model-weight-ingest
@@ -296,13 +296,13 @@ total 0
 az acr login --name $ACR_NAME
 
 # 1. The vLLM Server (Qwen 3.5 4B Model Weights + Inference Engine)
-az acr build --registry $ACR_NAME --image ocr-vlm-qwen:latest ./server
+az acr build --registry $ACR_NAME --image ocr-vlm-qwen:latest ./pipeline/server
 
 # 2. Real-Time Architecture (Enterprise Agentic Flow)
 # Build the high-performance Rust Producer (API Gateway)
-az acr build --registry $ACR_NAME --image ocr-api-rust:latest ./client_rt_producer
+az acr build --registry $ACR_NAME --image ocr-api-rust:latest ./pipeline/client_rt_producer
 # Build the GPU-ready Python Consumer (Layout Engine)
-az acr build --registry $ACR_NAME --image ocr-worker-rt:latest ./client_rt_consumer
+az acr build --registry $ACR_NAME --image ocr-worker-rt:latest ./pipeline/client_rt_consumer
 ```
 
 ### 4. Deploy the Full Stack
@@ -323,7 +323,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set grafana.enabled=true
 
 # 3. Deploy Real-Time Architecture
-kubectl apply -k k8s/aks/
+kubectl apply -k pipeline/k8s/aks/
 ```
 
 ### 5. End-to-End Testing & Validation
@@ -405,7 +405,7 @@ VNET_NAME=$(az network vnet list -g $NODE_RG --query "[0].name" -o tsv)
 az network vnet subnet list -g $NODE_RG --vnet-name $VNET_NAME --query "[].name" -o table
 ```
 
-Update your `k8s/networking/service.yml` with the following annotation:
+Update your `pipeline/k8s/aks/networking/service.yml` with the following annotation:
 
 ```yaml
 metadata:

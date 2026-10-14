@@ -15,6 +15,7 @@
 - [Course Overview](#course-overview)
 - [Who is this course for?](#who-is-this-course-for)
 - [Course Breakdown: Week by Week](#course-breakdown-week-by-week)
+- [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
 - [✨ Beyond Traditional OCR: The SLM Advantage](#-beyond-traditional-ocr-the-slm-advantage)
 - [🧠 Pipeline Architecture: Deep Dive into Throughput \& Scaling](#-pipeline-architecture-deep-dive-into-throughput--scaling)
@@ -87,10 +88,10 @@ We run this as a 6-week hands-on engineering cohort. The entire repository is op
 | :--- | :--- | :--- |
 | ⛵ **1. Kubernetes for AI Systems** | Pods, Services, Node Pools, resource scheduling | Cluster setup on AKS/GKE, T4 & A100 node pools, GPU drivers/operators with proper security profiles and taints |
 | 🧠 **2. SOTA OCR Approaches & VDU** | Single-stage end-to-end models vs. our two-stage layout-first pipeline | Evaluating GLM-OCR SDK's layout detection and measuring performance trade-offs |
-| ⚡ **3. Deploying the vLLM Inference Engine** | Continuous batching, PagedAttention, scheduling optimizations | Deploying Qwen 3.5 4B on vLLM, tuning `MAX_NUM_BATCHED_TOKENS`, chunked prefills, Multi-Token Prediction (MTP) — [standalone deployment walkthrough](week3_vllm_deployment/README.md) |
-| 🦀 **4. Rust Ingest Gateway** | High-concurrency gateways for heavy payloads; ownership, borrowing, async Rust | Building the Axum gateway (`client_rt_producer`), 10MB limits, atomic `HSET` writes to Redis — [standalone deployment walkthrough](week4_rust_gateway_deployment/README.md) |
-| 🔄 **5. Async Architectures & Zero-Copy Ingestion** | Queue buffers, dynamic batching collectors, RAM-disk transfer | Building the Python worker (`client_rt_consumer`), 100ms collection window, `/dev/shm` handoff, scale-to-zero with KEDA — [standalone deployment walkthrough](week5_async_architecture_deployment/README.md) |
-| 🛡️ **6. Enterprise Gateways & Claude Code MCP** | Security boundaries, JWT verification, rate limiting, agentic workflows | Configuring Azure APIM / GCP API Gateway policies and wrapping the pipeline in an MCP server for Claude Code — [standalone deployment walkthrough](week6_apim_mcp_deployment/README.md) |
+| ⚡ **3. Deploying the vLLM Inference Engine** | Continuous batching, PagedAttention, scheduling optimizations | Deploying Qwen 3.5 4B on vLLM, tuning `MAX_NUM_BATCHED_TOKENS`, chunked prefills, Multi-Token Prediction (MTP) — [standalone deployment walkthrough](weeks/week3_vllm_deployment/README.md) |
+| 🦀 **4. Rust Ingest Gateway** | High-concurrency gateways for heavy payloads; ownership, borrowing, async Rust | Building the Axum gateway (`client_rt_producer`), 10MB limits, atomic `HSET` writes to Redis — [standalone deployment walkthrough](weeks/week4_rust_gateway_deployment/README.md) |
+| 🔄 **5. Async Architectures & Zero-Copy Ingestion** | Queue buffers, dynamic batching collectors, RAM-disk transfer | Building the Python worker (`client_rt_consumer`), 100ms collection window, `/dev/shm` handoff, scale-to-zero with KEDA — [standalone deployment walkthrough](weeks/week5_async_architecture_deployment/README.md) |
+| 🛡️ **6. Enterprise Gateways & Claude Code MCP** | Security boundaries, JWT verification, rate limiting, agentic workflows | Configuring Azure APIM / GCP API Gateway policies and wrapping the pipeline in an MCP server for Claude Code — [standalone deployment walkthrough](weeks/week6_apim_mcp_deployment/README.md) |
 
 <p align="center">
   <img src="images/week1_infra_overview.png" width="32%" alt="Week 1">
@@ -103,20 +104,40 @@ We run this as a 6-week hands-on engineering cohort. The entire repository is op
   <img src="images/week6_apim_mcp.png" width="32%" alt="Week 6">
 </p>
 
+## Repository Structure
+
+```text
+.
+├── docs/
+│   ├── setup/          # Azure / GCP account onboarding and GPU quota prerequisites
+│   └── deployment/     # Full AKS / GKE deployment guides and cloud comparison matrix
+├── weeks/              # Standalone, self-contained walkthroughs for each course week
+│   ├── week3_vllm_deployment/
+│   ├── week4_rust_gateway_deployment/
+│   ├── week5_async_architecture_deployment/
+│   └── week6_apim_mcp_deployment/
+├── pipeline/           # The complete, production reference pipeline
+│   ├── server/              # vLLM inference engine image (Qwen 3.5)
+│   ├── client_rt_producer/  # Rust (Axum) ingest gateway
+│   ├── client_rt_consumer/  # Python batching worker (GLM-OCR SDK)
+│   └── k8s/                 # Kustomize manifests (aks/ and gke/ overlays)
+└── images/             # Diagrams and figures used across the docs
+```
+
 ## Getting Started
 
 Start with account setup, then GPU quota, then the full deployment guide for your cloud of choice:
 
 1. **Create your cloud account & claim free credits**
-   * 🔵 [Azure Account Setup](docs/azure_onboarding.md) — the course's primary cloud
-   * 🟢 [GCP Account Setup](docs/gcp_onboarding.md) — optional, if you'd rather run on Google Cloud
+   * 🔵 [Azure Account Setup](docs/setup/azure_onboarding.md) — the course's primary cloud
+   * 🟢 [GCP Account Setup](docs/setup/gcp_onboarding.md) — optional, if you'd rather run on Google Cloud
 2. **Request GPU quota** (T4 + A100 — this is the step most people get stuck on; free/trial accounts cannot run GPUs)
-   * 🔵 [Azure GPU Access & Quota Prerequisites](docs/azure_gpu_prereqs.md)
-   * 🟢 [GCP GPU Access & Quota Prerequisites](docs/gcp_gpu_prereqs.md)
+   * 🔵 [Azure GPU Access & Quota Prerequisites](docs/setup/azure_gpu_prereqs.md)
+   * 🟢 [GCP GPU Access & Quota Prerequisites](docs/setup/gcp_gpu_prereqs.md)
 3. **Deploy the pipeline**
-   * 📘 [Azure Kubernetes Service (AKS) Deployment Guide](docs/aks_deployment.md)
-   * 📗 [Google Kubernetes Engine (GKE) Deployment Guide](docs/gke_deployment.md)
-   * ☁️ [Cloud Provider Comparison & Discrepancies Matrix](docs/cloud_comparison.md)
+   * 📘 [Azure Kubernetes Service (AKS) Deployment Guide](docs/deployment/aks_deployment.md)
+   * 📗 [Google Kubernetes Engine (GKE) Deployment Guide](docs/deployment/gke_deployment.md)
+   * ☁️ [Cloud Provider Comparison & Discrepancies Matrix](docs/deployment/cloud_comparison.md)
 
 ---
 

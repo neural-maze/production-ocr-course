@@ -3,7 +3,7 @@
 ### 0. Prerequisites, Quotas & Environment Setup
 
 > 💡 **Automated Workflow with Makefile:**  
-> A complete [Makefile](file:///Users/hedrergudene/Documents/GitHub/tnm-articles/articles/20260812/deployment/Makefile) is provided in this directory. You can run all steps via `make` targets (e.g. `make infra-up`, `make nodepool-gpu`, `make ingest-weights`, `make deploy`) or execute the raw CLI commands detailed below.
+> A complete [Makefile](./Makefile) is provided in this directory. You can run all steps via `make` targets (e.g. `make infra-up`, `make nodepool-gpu`, `make ingest-weights`, `make deploy`) or execute the raw CLI commands detailed below.
 
 ```bash
 # --- Core Identifiers ---

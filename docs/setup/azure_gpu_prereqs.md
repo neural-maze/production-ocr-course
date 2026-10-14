@@ -244,7 +244,7 @@ via the cluster autoscaler and taints, before you invest time in the full
 build. This cluster is throwaway — **delete it at the end of this section.**
 The real, production cluster (ACR, model ingestion, Redis, the API gateway,
 KEDA, the works) is built fresh in
-[`aks_deployment.md`](aks_deployment.md) and does not reuse anything created
+[`aks_deployment.md`](../deployment/aks_deployment.md) and does not reuse anything created
 here.
 
 Deploy **without a fixed zone** to maximize the chance of finding capacity
@@ -323,5 +323,5 @@ az group delete --name $RG --yes --no-wait
 
 Quota is approved, capacity is confirmed, and the disposable smoke-test
 cluster from Section 7 is torn down. Head to
-[`aks_deployment.md`](aks_deployment.md) to build the real 4-node-pool AKS
+[`aks_deployment.md`](../deployment/aks_deployment.md) to build the real 4-node-pool AKS
 cluster (`gpunpt4`, `gpunpa100`, `redisnp`, `apinp`) and deploy the pipeline.

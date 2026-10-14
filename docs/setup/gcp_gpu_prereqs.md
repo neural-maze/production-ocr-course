@@ -152,7 +152,7 @@ actually schedule pods onto both GPU types via the cluster autoscaler, before
 you invest time in the full build. This cluster is throwaway — **delete it at
 the end of this section.** The real, production cluster (Artifact Registry,
 model ingestion, Redis, the API gateway, KEDA, the works) is built fresh in
-[`gke_deployment.md`](gke_deployment.md) and does not reuse anything created
+[`gke_deployment.md`](../deployment/gke_deployment.md) and does not reuse anything created
 here.
 
 One node pool per GPU type, both autoscaling with **scale-to-zero**
@@ -240,5 +240,5 @@ gcloud container clusters delete $CLUSTER --zone $ZONE --quiet
 
 Quota is approved, capacity is confirmed, and the disposable smoke-test
 cluster from Section 7 is deleted. Head to
-[`gke_deployment.md`](gke_deployment.md) to build the real 4-node-pool GKE
+[`gke_deployment.md`](../deployment/gke_deployment.md) to build the real 4-node-pool GKE
 cluster (`gpunpt4`, `gpunpa100`, `redisnp`, `apinp`) and deploy the pipeline.

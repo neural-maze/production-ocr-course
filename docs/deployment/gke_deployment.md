@@ -2,8 +2,8 @@
 
 > **Before you start:** this guide assumes you already have a GCP account with
 > a fully activated (non-trial) billing account and approved GPU quota. If you
-> haven't done that yet, go through [`gcp_onboarding.md`](gcp_onboarding.md)
-> and [`gcp_gpu_prereqs.md`](gcp_gpu_prereqs.md) first. Note that the
+> haven't done that yet, go through [`gcp_onboarding.md`](../setup/gcp_onboarding.md)
+> and [`gcp_gpu_prereqs.md`](../setup/gcp_gpu_prereqs.md) first. Note that the
 > capacity-proof cluster built in Section 7 of `gcp_gpu_prereqs.md` is
 > disposable and unrelated to the cluster built below — delete it if you
 > haven't already, this guide creates its own from scratch.
@@ -130,7 +130,7 @@ The model weights require a `ReadWriteMany` (RWX) volume so both the ingestion j
 
 ```bash
 # 1. Apply the GKE PVC (backed by Filestore standard-rwx)
-kubectl apply -f k8s/gke/infra/provisioning/pvc.yaml
+kubectl apply -f pipeline/k8s/gke/infra/provisioning/pvc.yaml
 
 # 2. Verify status is 'Bound'
 kubectl get pvc model-weights-pvc
@@ -146,7 +146,7 @@ model-weights-pvc   Bound    pvc-8192a3b1-12c4-4ef5-98de-f7fe61b13adb   1Ti     
 
 ```bash
 # Launch the ingestion job
-kubectl apply -f k8s/gke/infra/provisioning/ingest-job.yaml
+kubectl apply -f pipeline/k8s/gke/infra/provisioning/ingest-job.yaml
 
 # Confirm job execution
 kubectl get job model-weight-ingest
@@ -203,15 +203,15 @@ Build the container images locally or using Google Cloud Build, then push them t
 gcloud auth configure-docker ${AR_LOCATION}-docker.pkg.dev
 
 # 1. Build and push vLLM Inference Server
-docker build -t ${AR_REGISTRY}/ocr-vlm-qwen:latest ./server
+docker build -t ${AR_REGISTRY}/ocr-vlm-qwen:latest ./pipeline/server
 docker push ${AR_REGISTRY}/ocr-vlm-qwen:latest
 
 # 2. Build and push Rust Producer API Gateway
-docker build -t ${AR_REGISTRY}/ocr-api-rust:latest ./client_rt_producer
+docker build -t ${AR_REGISTRY}/ocr-api-rust:latest ./pipeline/client_rt_producer
 docker push ${AR_REGISTRY}/ocr-api-rust:latest
 
 # 3. Build and push Python Consumer Worker
-docker build -t ${AR_REGISTRY}/ocr-worker-rt:latest ./client_rt_consumer
+docker build -t ${AR_REGISTRY}/ocr-worker-rt:latest ./pipeline/client_rt_consumer
 docker push ${AR_REGISTRY}/ocr-worker-rt:latest
 ```
 
@@ -235,7 +235,7 @@ helm install prometheus prometheus-community/kube-prometheus-stack \
   --set grafana.enabled=true
 
 # 3. Deploy GKE Microservices Stack
-kubectl apply -k k8s/gke/
+kubectl apply -k pipeline/k8s/gke/
 ```
 
 ---
@@ -277,7 +277,7 @@ graph TD
 ```
 
 #### 1. Configure Internal Load Balancer
-The GKE service (`k8s/gke/networking/service.yml`) includes the GCP internal load balancer annotation:
+The GKE service (`pipeline/k8s/gke/networking/service.yml`) includes the GCP internal load balancer annotation:
 
 ```yaml
 metadata:
