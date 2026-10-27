@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ocr-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ocr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ocr}
+      POSTGRES_DB: ${POSTGRES_DB:-ocr_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ocr} -d ${POSTGRES_DB:-ocr_db}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  adminer:
+    image: adminer:latest
+    container_name: ocr-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  inngest:
+    image: inngest/inngest:latest
+    container_name: ocr-inngest
+    restart: unless-stopped
+    command: "inngest dev -u http://host.docker.internal:${APP_PORT:-8000}/api/inngest --sqlite-dir /data"
+    ports:
+      - "${INNGEST_PORT:-8288}:8288"
+      - "8289:8289"
+    volumes:
+      - inngest_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: Containerized llama.cpp server for Linux / Docker Desktop users
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: ocr-llamacpp
+    profiles:
+      - linux
+    restart: unless-stopped
+    ports:
+      - "${LLAMACPP_PORT:-8080}:8080"
+    volumes:
+      - ../models:/models
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "-m"
+      - "/models/${LLAMACPP_MODEL_FILE:-unlimited-ocr-2.gguf}"
+      - "--ctx-size"
+      - "32768"
+
+volumes:
+  postgres_data:
+  inngest_data:

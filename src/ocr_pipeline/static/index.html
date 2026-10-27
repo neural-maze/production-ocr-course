@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unlimited-OCR-2 · Local Pipeline & Metrics Visualizer</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand-dot"></span>
+      <h1 class="brand-title">Unlimited-OCR-2</h1>
+      <span class="brand-subtitle">Durable Multi-Page OCR Pipeline</span>
+    </div>
+    <div class="topbar-right">
+      <span id="badge-backend" class="meta-badge">Backend: —</span>
+      <span id="badge-model" class="meta-badge">Model: —</span>
+      <a id="link-inngest" href="http://localhost:8288" target="_blank" rel="noopener" class="ext-link">
+        Inngest Timeline (:8288) ↗
+      </a>
+      <a id="link-adminer" href="http://localhost:8081" target="_blank" rel="noopener" class="ext-link">
+        Postgres Adminer (:8081) ↗
+      </a>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Upload & Controls Row -->
+    <section class="control-grid">
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.tiff,.bmp" hidden />
+        <div class="dropzone-content">
+          <div class="dropzone-icon">📄</div>
+          <div>
+            <div class="dropzone-title">Drop a PDF or image here, or <span class="underline">browse</span></div>
+            <div class="dropzone-hint">Supports multi-page PDFs (rasterized at 150 DPI) and images (PNG, JPEG, WebP, TIFF)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-card">
+        <div class="control-row">
+          <label for="batch-size-select" class="control-label">
+            Pages / LLM Request (<code>batch_size</code>)
+          </label>
+          <select id="batch-size-select" class="select-input">
+            <option value="1">1 page / request</option>
+            <option value="2">2 pages / request</option>
+            <option value="4" selected>4 pages / request (Recommended)</option>
+            <option value="6">6 pages / request</option>
+            <option value="8">8 pages / request</option>
+          </select>
+        </div>
+        <div class="control-row" style="margin-top: 10px;">
+          <label for="history-select" class="control-label">Recent Documents</label>
+          <div class="history-controls">
+            <select id="history-select" class="select-input">
+              <option value="">— Select a processed document —</option>
+            </select>
+            <button id="refresh-btn" class="btn-secondary" title="Refresh history">↻</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live Status Banner -->
+    <section id="status-banner" class="status-banner hidden">
+      <div class="status-info">
+        <span id="status-pill" class="status-pill">queued</span>
+        <span id="status-filename" class="status-filename">document.pdf</span>
+        <span id="status-step" class="status-step">Waiting...</span>
+      </div>
+      <div class="progress-wrap">
+        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+      </div>
+    </section>
+
+    <!-- Server Speed & LLM Metrics Telemetry Strip -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">End-to-End Latency</div>
+        <div id="metric-latency" class="metric-value">—</div>
+        <div id="metric-latency-sub" class="metric-sub">Rasterize: — · LLM: —</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Page Throughput</div>
+        <div id="metric-pps" class="metric-value">—</div>
+        <div id="metric-pps-sub" class="metric-sub">Pages: — · Batches: —</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Decode Speed (Generation)</div>
+        <div id="metric-gen-tps" class="metric-value">—</div>
+        <div id="metric-gen-sub" class="metric-sub">Completion tokens: —</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Prefill Speed (Vision + Prompt)</div>
+        <div id="metric-prompt-tps" class="metric-value">—</div>
+        <div id="metric-prompt-sub" class="metric-sub">Prompt tokens: —</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Peak Unified Memory</div>
+        <div id="metric-memory" class="metric-value">—</div>
+        <div id="metric-memory-sub" class="metric-sub">Apple Silicon Metal / VRAM</div>
+      </div>
+    </section>
+
+    <!-- Per-Batch LLM Telemetry Table -->
+    <section id="batches-section" class="batches-section hidden">
+      <div class="section-header">
+        <span class="section-title">Inngest Durable Step & Multi-Page Batch Telemetry</span>
+        <span id="batches-summary" class="section-meta"></span>
+      </div>
+      <div class="table-scroll">
+        <table class="batches-table">
+          <thead>
+            <tr>
+              <th>Step / Batch</th>
+              <th>Page Range</th>
+              <th>Pages in Pass</th>
+              <th>Wall Latency</th>
+              <th>Prompt Tokens</th>
+              <th>Prefill Speed</th>
+              <th>Generated Tokens</th>
+              <th>Decode Speed</th>
+              <th>Peak Memory</th>
+            </tr>
+          </thead>
+          <tbody id="batches-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Main Split Visualizer -->
+    <section class="workspace-grid">
+      <!-- Left Pane: Page Image & Grounded Bounding Boxes -->
+      <div class="pane">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <span class="pane-title">Page & Grounding Inspector</span>
+            <span id="bbox-count-badge" class="count-badge">0 blocks</span>
+          </div>
+          <div class="page-controls">
+            <label class="checkbox-label">
+              <input type="checkbox" id="toggle-bboxes" checked />
+              Show <code>&lt;BLOCK&gt;</code> boxes
+            </label>
+            <button id="prev-page-btn" class="btn-nav" disabled>←</button>
+            <span id="page-indicator" class="page-indicator">Page 0 / 0</span>
+            <button id="next-page-btn" class="btn-nav" disabled>→</button>
+          </div>
+        </div>
+        <div id="canvas-viewport" class="canvas-viewport">
+          <div id="empty-page-state" class="empty-state">
+            Upload a PDF or image above to inspect rasterized pages and grounded layout blocks.
+          </div>
+          <div id="page-stage" class="page-stage hidden">
+            <img id="page-image" alt="Rasterized document page" />
+            <svg id="bbox-overlay" class="bbox-overlay" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Pane: Extracted Markdown & Raw Model Tokens -->
+      <div class="pane">
+        <div class="pane-header">
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="rendered">Rendered Markdown</button>
+            <button class="tab-btn" data-tab="source">Markdown Source</button>
+            <button class="tab-btn" data-tab="raw">Raw <code>&lt;BLOCK&gt;</code> Tokens</button>
+          </div>
+          <div class="output-controls">
+            <label class="checkbox-label">
+              <input type="checkbox" id="scope-current-page" />
+              Current page only
+            </label>
+            <button id="copy-btn" class="btn-secondary">Copy</button>
+          </div>
+        </div>
+        <div class="output-viewport">
+          <div id="tab-rendered" class="markdown-body">
+            <div class="empty-state">Extracted Markdown will appear here as batches complete.</div>
+          </div>
+          <pre id="tab-source" class="code-view hidden"></pre>
+          <pre id="tab-raw" class="code-view hidden"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
