@@ -18,6 +18,7 @@ from ocr_pipeline.inngest.workflows import process_document_workflow
 
 STATIC_DIR = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+IMAGES_DIR = REPO_ROOT / "images"
 DEFAULT_WARMUP_IMAGE = REPO_ROOT / "ocr-course" / "week4_rust_gateway_deployment" / "sample_image.png"
 
 
@@ -65,6 +66,8 @@ app.include_router(api_router)
 # Mount static assets and minimalist web visualizer
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if IMAGES_DIR.exists():
+    app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 
 @app.get("/", include_in_schema=False)

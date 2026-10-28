@@ -1,33 +1,44 @@
 const state = {
   currentDoc: null,
   currentPageIdx: 0,
-  activeTab: "rendered",
+  activeTab: "blocks",
+  activeBoxIdx: null,
   pollTimer: null,
+  batchesExpanded: false,
 };
 
-const LABEL_COLORS = {
-  title: "#2563eb",
-  doc_title: "#2563eb",
-  section_header: "#4f46e5",
-  sub_title: "#4f46e5",
-  heading: "#4f46e5",
-  table: "#059669",
-  cross_table: "#059669",
-  append_table: "#059669",
-  formula: "#d97706",
-  equation: "#d97706",
-  figure: "#9333ea",
-  image: "#9333ea",
-  chart: "#9333ea",
-  header: "#6b7280",
-  footer: "#6b7280",
-  page_number: "#6b7280",
-  default: "#0284c7",
+const LABEL_PALETTE = {
+  title: { hex: "#2563eb", bg: "#dbeafe" },
+  doc_title: { hex: "#2563eb", bg: "#dbeafe" },
+  section_header: { hex: "#4f46e5", bg: "#e0e7ff" },
+  sub_title: { hex: "#4f46e5", bg: "#e0e7ff" },
+  heading: { hex: "#4f46e5", bg: "#e0e7ff" },
+  table: { hex: "#059669", bg: "#d1fae5" },
+  cross_table: { hex: "#059669", bg: "#d1fae5" },
+  append_table: { hex: "#059669", bg: "#d1fae5" },
+  formula: { hex: "#d97706", bg: "#fef3c7" },
+  equation: { hex: "#d97706", bg: "#fef3c7" },
+  figure: { hex: "#9333ea", bg: "#f3e8ff" },
+  image: { hex: "#9333ea", bg: "#f3e8ff" },
+  chart: { hex: "#9333ea", bg: "#f3e8ff" },
+  list_item: { hex: "#0891b2", bg: "#cffafe" },
+  header: { hex: "#64748b", bg: "#f1f5f9" },
+  footer: { hex: "#64748b", bg: "#f1f5f9" },
+  page_number: { hex: "#64748b", bg: "#f1f5f9" },
+  footnote: { hex: "#e11d48", bg: "#ffe4e6" },
+  default: { hex: "#0284c7", bg: "#e0f2fe" },
 };
 
-function colorForLabel(label) {
+function styleForLabel(label) {
   const clean = (label || "text").toLowerCase().replace(/^(cross_|append_)/, "");
-  return LABEL_COLORS[clean] || LABEL_COLORS[label] || LABEL_COLORS.default;
+  return LABEL_PALETTE[clean] || LABEL_PALETTE[label] || LABEL_PALETTE.default;
+}
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function fetchSystemInfo() {
@@ -35,8 +46,9 @@ async function fetchSystemInfo() {
     const res = await fetch("/api/system");
     if (!res.ok) return;
     const info = await res.json();
-    document.getElementById("badge-backend").textContent = `Backend: ${info.backend.toUpperCase()} (${info.platform})`;
-    document.getElementById("badge-model").textContent = `Model: ${info.model_id}`;
+    const shortModel = (info.model_id || "").split("/").pop() || info.model_id;
+    document.getElementById("badge-backend").textContent = `${info.backend.toUpperCase()} · ${info.platform}`;
+    document.getElementById("badge-model").textContent = shortModel;
     document.getElementById("link-inngest").href = info.inngest_url;
     document.getElementById("link-adminer").href = info.adminer_url;
     const select = document.getElementById("batch-size-select");
@@ -55,17 +67,20 @@ async function fetchDocumentHistory(selectDocId = null) {
     const docs = await res.json();
     const sel = document.getElementById("history-select");
     const currentVal = selectDocId || sel.value;
-    sel.innerHTML = `<option value="">— Select a processed document (${docs.length}) —</option>`;
+    sel.innerHTML = `<option value="">— Select a document (${docs.length}) —</option>`;
     for (const d of docs) {
       const opt = document.createElement("option");
       opt.value = d.id;
       const pagesTxt = d.total_pages ? `${d.total_pages}p` : "...";
       const tpsTxt = d.avg_generation_tps > 0 ? ` · ${d.avg_generation_tps.toFixed(1)} tok/s` : "";
-      opt.textContent = `[${d.status.toUpperCase()}] ${d.filename} (${pagesTxt}, batch=${d.batch_size}${tpsTxt})`;
+      opt.textContent = `[${d.status.toUpperCase()}] ${d.filename} (${pagesTxt}, b=${d.batch_size}${tpsTxt})`;
       sel.appendChild(opt);
     }
     if (currentVal) {
       sel.value = currentVal;
+    } else if (docs.length > 0 && !state.currentDoc) {
+      sel.value = docs[0].id;
+      loadAndRenderDocument(docs[0].id);
     }
   } catch (err) {
     console.warn("Failed to fetch document history:", err);
@@ -134,6 +149,7 @@ async function loadAndRenderDocument(docId) {
     state.currentDoc = doc;
     if (isNewDoc) {
       state.currentPageIdx = 0;
+      state.activeBoxIdx = null;
     }
 
     let pct = 10;
@@ -173,7 +189,7 @@ function renderMetrics(doc) {
   document.getElementById("metric-pps").textContent =
     m.pages_per_sec > 0 ? `${m.pages_per_sec.toFixed(2)} p/s` : "—";
   document.getElementById("metric-pps-sub").textContent =
-    `Pages: ${doc.total_pages || 0} · Batches: ${doc.batches_completed}/${doc.batches_total} (size=${doc.batch_size})`;
+    `Pages: ${doc.total_pages || 0} · Batches: ${doc.batches_completed}/${doc.batches_total} (b=${doc.batch_size})`;
 
   document.getElementById("metric-gen-tps").textContent =
     m.avg_generation_tps > 0 ? `${m.avg_generation_tps.toFixed(1)} tok/s` : "—";
@@ -193,16 +209,21 @@ function renderMetrics(doc) {
 
 function renderBatchesTable(doc) {
   const section = document.getElementById("batches-section");
+  const toggleBtn = document.getElementById("toggle-batches-btn");
   const tbody = document.getElementById("batches-tbody");
-  const summary = document.getElementById("batches-summary");
 
   if (!doc.batches || doc.batches.length === 0) {
     section.classList.add("hidden");
+    toggleBtn.classList.add("hidden");
     return;
   }
 
-  section.classList.remove("hidden");
-  summary.textContent = `${doc.batches.length} of ${doc.batches_total} multi-page batch step(s) recorded`;
+  toggleBtn.classList.remove("hidden");
+  toggleBtn.textContent = state.batchesExpanded
+    ? `Hide Batch Breakdown (${doc.batches.length}) ▴`
+    : `Show Batch Breakdown (${doc.batches.length}) ▾`;
+
+  section.classList.toggle("hidden", !state.batchesExpanded);
   tbody.innerHTML = "";
 
   for (const b of doc.batches) {
@@ -212,7 +233,7 @@ function renderBatchesTable(doc) {
       <td><code>ocr-batch-${b.batch_index}</code></td>
       <td>${pageRange}</td>
       <td>${b.num_pages}</td>
-      <td>${(b.latency_ms / 1000).toFixed(2)}s (${b.latency_ms.toFixed(0)}ms)</td>
+      <td>${(b.latency_ms / 1000).toFixed(2)}s</td>
       <td>${b.prompt_tokens.toLocaleString()}</td>
       <td>${b.prompt_tps > 0 ? b.prompt_tps.toFixed(1) + " tok/s" : "—"}</td>
       <td>${b.generation_tokens.toLocaleString()}</td>
@@ -221,6 +242,26 @@ function renderBatchesTable(doc) {
     `;
     tbody.appendChild(tr);
   }
+}
+
+function setActiveBox(idx, { scrollCard = false, scrollSvg = false } = {}) {
+  state.activeBoxIdx = idx;
+
+  document.querySelectorAll(".bbox-group").forEach((el) => {
+    const isMatch = Number(el.dataset.idx) === idx;
+    el.classList.toggle("active", isMatch);
+    if (isMatch && scrollSvg) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
+
+  document.querySelectorAll(".block-card").forEach((el) => {
+    const isMatch = Number(el.dataset.idx) === idx;
+    el.classList.toggle("active", isMatch);
+    if (isMatch && scrollCard) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  });
 }
 
 function renderPageInspector() {
@@ -268,60 +309,243 @@ function renderPageInspector() {
   svg.setAttribute("viewBox", "0 0 1000 1000");
 
   if (showBboxes && bboxes.length > 0) {
-    for (const box of bboxes) {
-      const color = colorForLabel(box.label);
-      const w = Math.max(4, box.xmax - box.xmin);
-      const h = Math.max(4, box.ymax - box.ymin);
+    bboxes.forEach((box, idx) => {
+      const palette = styleForLabel(box.label);
+      const w = Math.max(6, box.xmax - box.xmin);
+      const h = Math.max(6, box.ymax - box.ymin);
+
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", `bbox-group${state.activeBoxIdx === idx ? " active" : ""}`);
+      g.dataset.idx = String(idx);
 
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       rect.setAttribute("x", String(box.xmin));
       rect.setAttribute("y", String(box.ymin));
       rect.setAttribute("width", String(w));
       rect.setAttribute("height", String(h));
-      rect.setAttribute("stroke", color);
-      rect.setAttribute("fill", color);
+      rect.setAttribute("stroke", palette.hex);
+      rect.setAttribute("fill", palette.hex);
+      rect.setAttribute("rx", "4");
       rect.setAttribute("class", "bbox-rect");
+      g.appendChild(rect);
 
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      const snippet = (box.text || "").slice(0, 140);
-      title.textContent = `${box.label} [${box.xmin}, ${box.ymin}, ${box.xmax}, ${box.ymax}]\n${snippet}`;
-      rect.appendChild(title);
-      svg.appendChild(rect);
-    }
+      // Numbered tag badge on top-left corner of bounding box
+      const tagText = `#${idx + 1}`;
+      const tagW = Math.max(30, tagText.length * 12 + 10);
+      const tagH = 24;
+      const tagY = Math.max(0, box.ymin - tagH);
+
+      const tagBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      tagBg.setAttribute("x", String(box.xmin));
+      tagBg.setAttribute("y", String(tagY));
+      tagBg.setAttribute("width", String(tagW));
+      tagBg.setAttribute("height", String(tagH));
+      tagBg.setAttribute("rx", "4");
+      tagBg.setAttribute("fill", palette.hex);
+      tagBg.setAttribute("class", "bbox-tag-bg");
+      g.appendChild(tagBg);
+
+      const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textEl.setAttribute("x", String(box.xmin + 6));
+      textEl.setAttribute("y", String(tagY + 17));
+      textEl.setAttribute("class", "bbox-tag-text");
+      textEl.textContent = tagText;
+      g.appendChild(textEl);
+
+      g.addEventListener("mouseenter", () => {
+        setActiveBox(idx, { scrollCard: true });
+      });
+
+      g.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (state.activeTab !== "blocks") {
+          switchTab("blocks");
+        }
+        setActiveBox(idx, { scrollCard: true });
+      });
+
+      svg.appendChild(g);
+    });
   }
 }
 
 function renderOutputPane() {
   const doc = state.currentDoc;
-  const currentPageOnly = document.getElementById("scope-current-page").checked;
+  const blocksEl = document.getElementById("tab-blocks");
   const renderedEl = document.getElementById("tab-rendered");
-  const sourceEl = document.getElementById("tab-source");
-  const rawEl = document.getElementById("tab-raw");
+  const rawTextarea = document.getElementById("raw-textarea");
+  const currentPageOnly = document.getElementById("scope-current-page").checked;
 
   if (!doc) return;
 
-  let mdText = doc.markdown || "";
-  let rawText = doc.raw_output || "";
+  const page = doc.pages && doc.pages[state.currentPageIdx] ? doc.pages[state.currentPageIdx] : null;
+  const bboxes = page && page.bboxes ? page.bboxes : [];
 
-  if (currentPageOnly && doc.pages && doc.pages[state.currentPageIdx]) {
-    const p = doc.pages[state.currentPageIdx];
-    mdText = p.markdown || "";
-    rawText = p.raw_text || "";
-  } else if (!mdText && doc.pages && doc.pages.length > 0) {
-    mdText = doc.pages.map((p) => p.markdown).filter(Boolean).join("\n\n---\n\n");
-    rawText = doc.pages.map((p) => p.raw_text).filter(Boolean).join("\n\n<PAGE>\n\n");
-  }
-
-  if (mdText.trim()) {
-    renderedEl.innerHTML = window.marked ? window.marked.parse(mdText) : mdText;
+  // 1. Render Grounded Box Cards for the current page
+  if (bboxes.length === 0) {
+    blocksEl.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-illustration">${doc.status === "done" ? "📄" : "⏳"}</div>
+        <div class="empty-title">${
+          doc.status === "done" ? "No Grounded Boxes on This Page" : "Extracting Grounded Layout Blocks..."
+        }</div>
+        <div class="empty-desc">
+          ${
+            page && page.markdown
+              ? "Switch to 'Rendered Doc' or 'Complete Raw' to view page content."
+              : "Boxes will appear here automatically as each batch completes."
+          }
+        </div>
+      </div>
+    `;
   } else {
-    renderedEl.innerHTML = `<div class="empty-state">${
-      doc.status === "done" ? "No text blocks extracted." : "Waiting for OCR batch output..."
-    }</div>`;
+    blocksEl.innerHTML = "";
+    bboxes.forEach((box, idx) => {
+      const palette = styleForLabel(box.label);
+      const card = document.createElement("div");
+      card.className = `block-card${state.activeBoxIdx === idx ? " active" : ""}`;
+      card.style.borderLeftColor = palette.hex;
+      card.dataset.idx = String(idx);
+
+      const contentText = (box.text || "").trim();
+      const renderedContent = contentText
+        ? window.marked
+          ? window.marked.parse(contentText)
+          : `<p>${escapeHtml(contentText)}</p>`
+        : `<span style="color: var(--text-muted); font-style: italic;">(${escapeHtml(box.label)} region)</span>`;
+
+      card.innerHTML = `
+        <div class="block-card-header">
+          <div class="block-meta-left">
+            <span class="block-index" style="background: ${palette.hex};">#${idx + 1}</span>
+            <span class="block-label-pill" style="background: ${palette.bg}; color: ${palette.hex};">
+              ${escapeHtml(box.label)}
+            </span>
+            <span class="block-coords">[${box.xmin}, ${box.ymin}, ${box.xmax}, ${box.ymax}]</span>
+          </div>
+          <button type="button" class="btn-copy-mini" data-copy-idx="${idx}">Copy box</button>
+        </div>
+        <div class="block-card-body">${renderedContent}</div>
+      `;
+
+      card.addEventListener("mouseenter", () => {
+        setActiveBox(idx, { scrollSvg: false });
+      });
+
+      card.addEventListener("click", () => {
+        setActiveBox(idx, { scrollSvg: true });
+      });
+
+      const copyBtn = card.querySelector(".btn-copy-mini");
+      copyBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const rawBlock = `<BLOCK>${box.label}[${box.xmin},${box.ymin},${box.xmax},${box.ymax}]<FORK>${box.text || ""}`;
+        await navigator.clipboard.writeText(box.text || rawBlock);
+        copyBtn.textContent = "✓ Copied";
+        setTimeout(() => {
+          copyBtn.textContent = "Copy box";
+        }, 1100);
+      });
+
+      blocksEl.appendChild(card);
+    });
   }
 
-  sourceEl.textContent = mdText || "// No Markdown output yet";
-  rawEl.textContent = rawText || "// No raw <BLOCK>...<FORK> tokens yet";
+  // 2. Render Clean Markdown Tab
+  let mdText = doc.markdown || "";
+  if (!mdText && doc.pages && doc.pages.length > 0) {
+    mdText = doc.pages.map((p) => p.markdown).filter(Boolean).join("\n\n---\n\n");
+  }
+  if (mdText.trim()) {
+    renderedEl.innerHTML = window.marked ? window.marked.parse(mdText) : escapeHtml(mdText);
+  } else {
+    renderedEl.innerHTML = `<div class="empty-state"><div class="empty-desc">Waiting for extracted Markdown...</div></div>`;
+  }
+
+  // 3. Render Complete Raw Output Tab
+  let rawText = doc.raw_output || "";
+  if (currentPageOnly && page) {
+    rawText = page.raw_text || "";
+  } else if (!rawText && doc.pages && doc.pages.length > 0) {
+    rawText = doc.pages.map((p) => `<PAGE>${p.raw_text || ""}`).join("\n");
+  }
+  rawTextarea.value = rawText || "";
+}
+
+function switchTab(tabName) {
+  state.activeTab = tabName;
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  document.getElementById("tab-blocks").classList.toggle("hidden", tabName !== "blocks");
+  document.getElementById("tab-rendered").classList.toggle("hidden", tabName !== "rendered");
+  document.getElementById("tab-raw").classList.toggle("hidden", tabName !== "raw");
+}
+
+function setupSplitResizer() {
+  const workspace = document.getElementById("split-workspace");
+  const leftPane = document.getElementById("left-pane");
+  const rightPane = document.getElementById("right-pane");
+  const resizer = document.getElementById("split-resizer");
+
+  let isDragging = false;
+
+  const onMove = (clientX) => {
+    if (!isDragging) return;
+    const rect = workspace.getBoundingClientRect();
+    const offsetX = clientX - rect.left;
+    const pct = Math.max(22, Math.min(78, (offsetX / rect.width) * 100));
+    leftPane.style.width = `${pct}%`;
+    rightPane.style.width = `${100 - pct}%`;
+  };
+
+  resizer.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    isDragging = true;
+    resizer.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+  });
+
+  window.addEventListener("mousemove", (e) => onMove(e.clientX));
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      resizer.classList.remove("dragging");
+      document.body.style.cursor = "";
+    }
+  });
+
+  // Touch support
+  resizer.addEventListener(
+    "touchstart",
+    () => {
+      isDragging = true;
+      resizer.classList.add("dragging");
+    },
+    { passive: true }
+  );
+  window.addEventListener(
+    "touchmove",
+    (e) => {
+      if (isDragging && e.touches[0]) {
+        onMove(e.touches[0].clientX);
+      }
+    },
+    { passive: true }
+  );
+  window.addEventListener("touchend", () => {
+    isDragging = false;
+    resizer.classList.remove("dragging");
+  });
+}
+
+async function flashButtonCopied(btn, label = "✓ Copied!") {
+  const orig = btn.innerHTML;
+  btn.innerHTML = label;
+  setTimeout(() => {
+    btn.innerHTML = orig;
+  }, 1300);
 }
 
 function setupEventListeners() {
@@ -359,9 +583,17 @@ function setupEventListeners() {
     fetchDocumentHistory(state.currentDoc ? state.currentDoc.id : null);
   });
 
+  document.getElementById("toggle-batches-btn").addEventListener("click", () => {
+    state.batchesExpanded = !state.batchesExpanded;
+    if (state.currentDoc) {
+      renderBatchesTable(state.currentDoc);
+    }
+  });
+
   document.getElementById("prev-page-btn").addEventListener("click", () => {
     if (state.currentPageIdx > 0) {
       state.currentPageIdx--;
+      state.activeBoxIdx = null;
       renderPageInspector();
       renderOutputPane();
     }
@@ -370,6 +602,7 @@ function setupEventListeners() {
   document.getElementById("next-page-btn").addEventListener("click", () => {
     if (state.currentDoc && state.currentPageIdx < state.currentDoc.pages.length - 1) {
       state.currentPageIdx++;
+      state.activeBoxIdx = null;
       renderPageInspector();
       renderOutputPane();
     }
@@ -384,27 +617,32 @@ function setupEventListeners() {
   });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.activeTab = btn.dataset.tab;
-
-      document.getElementById("tab-rendered").classList.toggle("hidden", state.activeTab !== "rendered");
-      document.getElementById("tab-source").classList.toggle("hidden", state.activeTab !== "source");
-      document.getElementById("tab-raw").classList.toggle("hidden", state.activeTab !== "raw");
-    });
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  document.getElementById("copy-btn").addEventListener("click", async () => {
+  document.getElementById("copy-raw-btn").addEventListener("click", async (e) => {
     const doc = state.currentDoc;
     if (!doc) return;
-    const text = state.activeTab === "raw" ? doc.raw_output : doc.markdown;
-    await navigator.clipboard.writeText(text || "");
-    const btn = document.getElementById("copy-btn");
-    const orig = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => (btn.textContent = orig), 1200);
+    let raw = doc.raw_output || "";
+    if (!raw && doc.pages && doc.pages.length > 0) {
+      raw = doc.pages.map((p) => `<PAGE>${p.raw_text || ""}`).join("\n");
+    }
+    await navigator.clipboard.writeText(raw);
+    flashButtonCopied(e.currentTarget, "✓ Copied Complete Raw!");
   });
+
+  document.getElementById("copy-md-btn").addEventListener("click", async (e) => {
+    const doc = state.currentDoc;
+    if (!doc) return;
+    let md = doc.markdown || "";
+    if (!md && doc.pages && doc.pages.length > 0) {
+      md = doc.pages.map((p) => p.markdown).filter(Boolean).join("\n\n---\n\n");
+    }
+    await navigator.clipboard.writeText(md);
+    flashButtonCopied(e.currentTarget, "✓ Copied Markdown!");
+  });
+
+  setupSplitResizer();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -412,4 +650,3 @@ document.addEventListener("DOMContentLoaded", async () => {
   await fetchSystemInfo();
   await fetchDocumentHistory();
 });
-
